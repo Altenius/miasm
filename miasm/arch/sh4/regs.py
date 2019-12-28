@@ -23,6 +23,7 @@ dregs = reg_info(dregs_str, dregs_expr)
 PC, reg_info_pc = gen_reg('PC')
 PR, reg_info_pr = gen_reg('PR')
 R0, reg_info_r0 = gen_reg('R0')
+FR0, reg_info_fr0 = gen_reg('FR0')
 GBR, reg_info_gbr = gen_reg('GBR')
 SR, reg_info_sr = gen_reg('SR')
 VBR, reg_info_vbr = gen_reg('VBR')
@@ -33,7 +34,7 @@ DBR, reg_info_dbr = gen_reg('DBR')
 MACH, reg_info_mach = gen_reg('MACH')
 MACL, reg_info_macl = gen_reg('MACL')
 FPUL, reg_info_fpul = gen_reg('FPUL')
-FR0, reg_info_fr0 = gen_reg('FR0')
+TRA, reg_info_tra = gen_reg('TRA')
 
 R0 = gpregs_expr[0]
 R1 = gpregs_expr[1]
@@ -52,24 +53,41 @@ R13 = gpregs_expr[13]
 R14 = gpregs_expr[14]
 R15 = gpregs_expr[15]
 
+FR0 = fregs_expr[0]
+FR1 = fregs_expr[1]
+FR2 = fregs_expr[2]
+FR3 = fregs_expr[3]
+FR4 = fregs_expr[4]
+FR5 = fregs_expr[5]
+FR6 = fregs_expr[6]
+FR7 = fregs_expr[7]
+FR8 = fregs_expr[8]
+FR9 = fregs_expr[9]
+FR10 = fregs_expr[10]
+FR11 = fregs_expr[11]
+FR12 = fregs_expr[12]
+FR13 = fregs_expr[13]
+FR14 = fregs_expr[14]
+FR15 = fregs_expr[15]
 
-reg_zf = 'zf'
-reg_nf = 'nf'
-reg_of = 'of'
-reg_cf = 'cf'
 
-zf = ExprId(reg_zf, size=1)
-nf = ExprId(reg_nf, size=1)
-of = ExprId(reg_of, size=1)
-cf = ExprId(reg_cf, size=1)
+reg_tf = 'tf'
+reg_mf = 'mf'
+reg_qf = 'qf'
+reg_sf = 'sf'
 
+tf = ExprId(reg_tf, size=1)
+mf = ExprId(reg_mf, size=1)
+qf = ExprId(reg_qf, size=1)
+sf = ExprId(reg_sf, size=1)
 
 all_regs_ids = [
     R0, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15,
-    zf, nf, of, cf,
+    FR0, FR1, FR2, FR3, FR4, FR5, FR6, FR7, FR8, FR9, FR10, FR11, FR12, FR13, FR14, FR15,
+    tf, mf, qf, sf,
 
-    PC, PR, R0, GBR, SR, VBR, SSR, SPC,
-    SGR, DBR, MACH, MACL, FPUL, FR0]
+    PC, PR, GBR, SR, VBR, SSR, SPC,
+    SGR, DBR, MACH, MACL, FPUL, FR0, TRA]
 
 all_regs_ids_no_alias = all_regs_ids
 

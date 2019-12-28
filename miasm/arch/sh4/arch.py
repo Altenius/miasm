@@ -18,6 +18,11 @@ jrb = ExprId('jrb', 32)
 jrc = ExprId('jrc', 32)
 
 
+conditional_branch = ["BF", "BFS", "BT", "BTS"]
+unconditional_branch = ["BRA", "JMP.L"]
+delayed_instr = ["BFS", "BTS", "BRA", "BRAF", "BSR", "BSRF", "JMP.L", "JSR.L", "RTS"]
+
+
 # parser helper ###########
 PLUS = Suppress("+")
 MULT = Suppress("*")
@@ -400,12 +405,17 @@ class additional_info(object):
 
 class instruction_sh4(instruction):
     __slots__ = []
-    delayslot = 0
 
     def __init__(self, *args, **kargs):
         super(instruction_sh4, self).__init__(*args, **kargs)
+        if self.name in delayed_instr:
+            self.delayslot = 1
+        else:
+            self.delayslot = 0
 
     def dstflow(self):
+        if self.name in conditional_branch + unconditional_branch:
+            return True
         return self.name.startswith('J')
 
     @staticmethod
@@ -439,33 +449,37 @@ class instruction_sh4(instruction):
         return s
 
 
-    """
     def dstflow2label(self, loc_db):
-        e = self.args[0]
-        if not isinstance(e, ExprInt):
+        expr = self.args[-1]
+        if not expr.is_int():
             return
-        if self.name == 'BLX':
-            ad = e.arg+8+self.offset
-        else:
-            ad = e.arg+8+self.offset
-        l = loc_db.get_or_create_offset_location(ad)
-        s = ExprId(l, e.size)
-        self.args[0] = s
-    """
+
+        # if self.name in ["BF", "BFS", "BT", "BTS", "BRA"]
+        addr = expr.arg * 2 + int(self.offset) + 4
+        loc_key = loc_db.get_or_create_offset_location(addr)
+        self.args[-1] = ExprLoc(loc_key, expr.size)
 
     def breakflow(self):
-        if self.name.startswith('J'):
+        if self.name in conditional_branch + unconditional_branch:
+            return True
+        if self.name in ["BSR", "BSRF", "JSR.L", "RET"]:
+            return True
+        if self.name.startswith("RTS"):
             return True
         return False
 
     def is_subcall(self):
-        return self.name == 'JSR'
+        return self.name in ['JSR.L', 'BSR']
 
     def getdstflow(self, loc_db):
         return [self.args[0]]
 
     def splitflow(self):
-        return self.name == 'JSR'
+        if self.name in conditional_branch:
+            return True
+        if self.name in unconditional_branch:
+            return False
+        return self.name in ['JSR.L', 'BSR']
 
     def get_symbol_size(self, symbol, loc_db):
         return 32
@@ -473,16 +487,14 @@ class instruction_sh4(instruction):
     def fixDstOffset(self):
         e = self.args[0]
         if self.offset is None:
-            raise ValueError('symbol not resolved %s' % l)
+            raise ValueError('symbol not resolved %s' % self.l)
         if not isinstance(e, ExprInt):
             log.debug('dyn dst %r', e)
             return
-        off = e.arg - (self.offset + 4 + self.l)
-        print(hex(off))
-        if int(off % 4):
+        off = e.arg * 2 + 4
+        if int(off % 2):
             raise ValueError('strange offset! %r' % off)
         self.args[0] = ExprInt(off, 32)
-        print('final', self.args[0])
 
     def get_args_expr(self):
         args = [a for a in self.args]
@@ -500,8 +512,17 @@ class mn_sh4(cls_mn):
     pc = PC
     # delayslot:
     # http://resource.renesas.com/lib/eng/e_learnig/sh4/13/index.html
-    delayslot = 0  # unit is instruction instruction
+    delayslot = 1  # unit is instruction instruction
     instruction = instruction_sh4
+    max_instruction_len = 2
+
+    @classmethod
+    def getpc(cls, attrib = None):
+        return PC
+
+    @classmethod
+    def getsp(cls, attrib = None):
+        return R15
 
     def additional_info(self):
         info = additional_info()
@@ -516,7 +537,8 @@ class mn_sh4(cls_mn):
             raise ValueError('not enough bits %r %r' % (n, len(bs.bin) * 8))
         while n:
             i = start // 8
-            c = cls.getbytes(bs, i)
+            n_offset = cls.endian_offset(attrib, i)
+            c = cls.getbytes(bs, n_offset, 1)
             if not c:
                 raise IOError
             c = ord(c)
@@ -529,7 +551,16 @@ class mn_sh4(cls_mn):
             n -= l
             start += l
         return o
+    
+    @classmethod
+    def endian_offset(cls, attrib, offset):
+        if attrib == "b":
+            # return (offset & ~3) + 3 - offset % 4 #offset
+            return offset
+        else:
+            raise NotImplementedError('bad attrib')
 
+    """
     @classmethod
     def getbytes(cls, bs, offset, l=1):
         out = b""
@@ -538,6 +569,7 @@ class mn_sh4(cls_mn):
             out += bs.getbytes(n_offset, 1)
             offset += 1
         return out
+        """
 
     @classmethod
     def check_mnemo(cls, fields):
@@ -555,7 +587,12 @@ class mn_sh4(cls_mn):
 
     def value(self, mode):
         v = super(mn_sh4, self).value(mode)
-        return [x[::-1] for x in v]
+        # return [x[::-1] for x in v]
+        # Big Endian
+        if mode == 'b':
+            return [x for x in v]
+        else:
+            raise NotImplementedError('bad attrib')
 
 
 class bs_dr0gbr(sh4_dgpreg):
@@ -720,6 +757,7 @@ addop("mov_w", [bs('11000101'), d16gbrimm8, bs_r0])
 addop("mov_l", [bs('11000110'), d32gbrimm8, bs_r0])
 
 addop("mov", [bs('11000111'), pc32imm, bs_r0])
+addop("movt", [bs('0000'), rn, bs('00101001')])
 
 addop("swapb", [bs('0110'), rn, rm, bs('1000')], [rm, rn])
 addop("swapw", [bs('0110'), rn, rm, bs('1001')], [rm, rn])
@@ -821,20 +859,7 @@ addop("shlr16", [bs('0100'), rn, bs('00101001')])
 
 
 addop("bf", [bs('10001011'), s08imm])
-"""
-    def splitflow(self):
-        return True
-    def breakflow(self):
-        return True
-    def dstflow(self):
-        return True
-    def dstflow2label(self, loc_db):
-        e = self.args[0].expr
-        ad = e.arg*2+4+self.offset
-        l = loc_db.get_or_create_offset_location(ad)
-        s = ExprId(l, e.size)
-        self.args[0].expr = s
-"""
+ 
 
 addop("bfs", [bs('10001111'), s08imm])
 """
@@ -880,14 +905,16 @@ addop("bsrf", [bs('0000'), rn, bs('00000011')])
         return True
 """
 
-addop("jmp_l", [bs('0100'), d32gpreg, bs('00101011')])
+#addop("jmp_l", [bs('0100'), d32gpreg, bs('00101011')])
+addop("jmp_l", [bs('0100'), rm, bs('00101011')])
 """
     delayslot = 1
     def breakflow(self):
         return True
 """
 
-addop("jsr_l", [bs('0100'), d32gpreg, bs('00001011')])
+#addop("jsr_l", [bs('0100'), d32gpreg, bs('00001011')])
+addop("jsr_l", [bs('0100'), rm, bs('00001011')])
 """
     delayslot = 1
     def breakflow(self):
@@ -926,9 +953,11 @@ addop("ldc_l", [bs('0100'), d32rmpinc, bs('1'), brn, bs('0111')])
 addop("lds", [bs('0100'), rm, bs_mach, bs('00001010')])
 addop("lds", [bs('0100'), rm, bs_macl, bs('00011010')])
 addop("lds", [bs('0100'), rm, bs_pr, bs('00101010')])
+addop("lds", [bs('0100'), rm, bs_fpul, bs('01011010')])
 addop("lds_l", [bs('0100'), d32rmpinc, bs_mach, bs('00000110')])
 addop("lds_l", [bs('0100'), d32rmpinc, bs_macl, bs('00010110')])
 addop("lds_l", [bs('0100'), d32rmpinc, bs_pr, bs('00100110')])
+addop("lds_l", [bs('0100'), d32rmpinc, bs_fpul, bs('01010110')])
 addop("ldtlb", [bs('0000000000111000')])
 
 addop("movca_l", [bs('0000'), bs_r0, d32gpreg, bs('11000011')])
@@ -963,11 +992,12 @@ addop("stc_l",
       [bs('0100'), d32rnpdec, bs('1'), brm, bs('0011')], [brm, d32rnpdec])
 
 # float
-addop("sts", [bs('0000'), bs_mach, rm, bs('00001010')])
-addop("sts", [bs('0000'), bs_macl, rm, bs('00011010')])
-addop("sts", [bs('0000'), bs_pr, rm, bs('00101010')])
-addop("sts_l", [bs('0100'), bs_mach, d32rmpdec, bs('00000010')])
-addop("sts_l", [bs('0100'), bs_macl, d32rmpdec, bs('00010010')])
+addop("sts", [bs('0000'), bs_mach, rn, bs('00001010')])
+addop("sts", [bs('0000'), bs_macl, rn, bs('00011010')])
+addop("sts", [bs('0000'), bs_pr, rn, bs('00101010')])
+addop("sts", [bs('0000'), bs_fpul, rn, bs('01011010')])
+addop("sts_l", [bs('0100'), bs_mach, d32rnpdec, bs('00000010')])
+addop("sts_l", [bs('0100'), bs_macl, d32rnpdec, bs('00010010')])
 addop("sts_l",
       [bs('0100'), d32rnpdec, bs_pr, bs('00100010')], [bs_pr, d32rnpdec])
 addop("trapa", [bs('11000011'), u08imm])
